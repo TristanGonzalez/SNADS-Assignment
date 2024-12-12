@@ -36,8 +36,6 @@ df
 
 ```{r}
 mode <- function(x) {
-  # Remove NA values
-  x <- x[!is.na(x)]
   
   # Return NA if the vector is empty
   if (length(x) == 0) {
@@ -55,14 +53,12 @@ mode <- function(x) {
   return(modes[1])
 }
 
-
+(user_hashtags)
 user_hashtags <- data.frame(
-  userid = rep(df$userid, lengths(df$hashtags)), # Repeat `userid` for each element in `hashtags`
-  hashtags = unlist(df$hashtags)                # Flatten the `hashtags` list column
+  userid = rep(df$userid, lengths(df$hashtags)),
+  hashtags = unlist(df$hashtags)              
 )
 
-
-user_hashtags <- user_hashtags[user_hashtags$hashtags != "", ] #remove "" from table
 
 
 user_mode_hashtags <- aggregate(hashtags ~ userid, data= user_hashtags, FUN= mode)
@@ -115,10 +111,9 @@ categorize_hashtag <- function(hashtag) {
                             "éraseunarvezcasado", "juegodeescaños", "felizjueves")) {
     return("Media and Events")
   } else if (hashtag %in% c("pedroselofunde", "stopsanchez", "stopokupas",
-                            "decretazosánchez", "elsanchismoesruina", "sanchezmentiroso")) {
+                            "decretazosánchez", "elsanchismoesruina", "sanchezmentiroso", 
+                            "ghdúo", "lavozasaltos3", "micasaelecciones", "eldebatelv")) {
     return("Anti-Socialist Campaign")
-  } else if (hashtag %in% c("ghdúo", "lavozasaltos3", "micasaelecciones", "eldebatelv")) {
-    return("TV and Entertainment")
   } else if (hashtag %in% c("porlaconciliaciónreal", "nohablamoshacemos", "falconviajes",
                             "elppeseconomía", "assassinscreed", "agua")) {
     return("Social and Economic Topics")
@@ -135,10 +130,17 @@ categorize_hashtag <- function(hashtag) {
 }
 
 # Apply the function to create a new column
-user_mode_hashtags <- user_mode_hashtags[!is.na(user_mode_hashtags$hashtag), ]
+
+
+(user_mode_hashtags)
 
 user_mode_hashtags$hashtag_category <- sapply(user_mode_hashtags$hashtags, categorize_hashtag)
+
 table(user_mode_hashtags$hashtag_category)
+
+sum(is.na(user_mode_hashtags$hashtag_category))
+
+(user_mode_hashtags)
 
 ```
 
@@ -167,6 +169,8 @@ user_tweet_language <- aggregate(tweet_language ~ userid, data=df, FUN = mode2)
 
 ```{r}
 aggregated_stats <- aggregate(cbind(quote_count, reply_count, like_count, retweet_count) ~ userid, data=df, FUN = mean)
+
+aggregated_stats
 ```
 
 ```{r}
@@ -250,19 +254,13 @@ final_nodes <- merge(x = final_nodes, y = user_following, by = "userid", all.x =
 final_nodes <- merge(x = final_nodes, y = user_acc_creation, by = "userid", all.x = TRUE)
 final_nodes <- merge(x = final_nodes, y = user_acc_language, by = "userid", all.x = TRUE)
 final_nodes <- merge(x = final_nodes, y = user_tweet_language, by = "userid", all.x = TRUE)
-
 final_nodes <- merge(x = final_nodes, y = user_mode_hashtags, by = "userid", all.x = TRUE)
-
 final_nodes
-
-
 ```
 
 # Create network edges dataset
 
 ```{r}
-
-
 reply_network <- na.omit(subset(df_raw, select=c(userid, in_reply_to_userid)))
 reply_network <- subset(reply_network, in_reply_to_userid %in% users)
 
@@ -353,7 +351,7 @@ network::set.vertex.attribute(net, "follower_count", value = final_nodes$followe
 network::set.vertex.attribute(net, "following_count", value = final_nodes$following_count)
 network::set.vertex.attribute(net, "account_language", value = final_nodes$account_language)
 network::set.vertex.attribute(net, "hashtag_category", value = final_nodes$hashtag_category)
-network::set.vertex.attribute(net, "hashtag", value = final_nodes$hashtags)
+network::set.vertex.attribute(net, "hashtags", value = final_nodes$hashtags)
 ```
 
 
@@ -375,10 +373,20 @@ summary(m0)
 ```
 
 ### Model 1 Hashtag Category (exogenous)
+```{r}
+
+net
+```
+```{r}
+(user_mode_hashtags)
+```
+```{r}
+snafun::extract_all_vertex_attributes(net)
+```
+
 
 ```{r}
-# Model with edges and exogenous term
-
+# Model with edges and exogenous terz
 
 m1 <- ergm::ergm(net ~ edges + nodematch("hashtag_category"))
 summary(m1)
@@ -395,13 +403,22 @@ summary(m2)
 
 ```{r}
 # Model with edges and mutual good!
-m3 <- ergm::ergm(net ~ edges + mutual)
+m3 <- ergm::ergm(net ~ edges + mutual + nodematch("hashtag_category") + nodeicov("follower_count"),
+                  control = ergm::control.ergm(
+                     MCMC.samplesize = 15000,
+                     MCMC.burnin = 5000,
+                     MCMLE.maxit = 20,
+                     parallel = 10,
+                     parallel.type = "PSOCK")
+                   )
 summary(m3)
-
-ergm::mcmc.diagnostics(m3)
 ```
 
-### Model 5: Popularity (High in-degree)
+
+
+
+
+
 
 ```{r}
 #look at what value is meaningful for the indegree
@@ -409,16 +426,26 @@ max_in_degree <-sna::degree(net, cmode = "indegree")
 print(table(max_in_degree))
 ```
 
-use a high in-degree: 7
+
+
 
 ```{r}
-m5 <- ergm::ergm(net ~ edges + gwin)
-summary(m5)
+# Model with edges and mutual good!
+m4 <- ergm::ergm(net ~ edges + mutual + nodematch("hashtag_category") + nodeicov("follower_count") + gwidegree(decay = 1.8, fixed = TRUE),
+                  control = ergm::control.ergm(
+                     MCMC.samplesize = 15000,
+                     MCMC.burnin = 5000,
+                     MCMLE.maxit = 20,
+                     parallel = 10,
+                     parallel.type = "PSOCK")
+                   )
+summary(m4)
 
-ergm::mcmc.diagnostics(m5)
 ```
 
-### Model 6: Transitivity (triangles)
+
+
+
 
 ```{r}
 # Fit the ERGM model with edges and triangles, using specific MCMC settings
