@@ -1,0 +1,660 @@
+---
+title: "Preprocessing"
+output: html_document
+date: "2024-11-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Feature Creation
+
+**Load Dataset**
+
+```{r}
+df_raw <- readr::read_csv("spain_082019_tweets_csv_hashed.csv")
+head(df_raw)
+
+```
+
+**Choose selection of columns and turn hashtags into a list of vectors**
+
+```{r}
+df <- subset(df_raw, select=c(userid, user_reported_location, follower_count, following_count, account_creation_date, account_language, tweet_language, quote_count, reply_count, like_count, retweet_count, hashtags))
+
+
+#create list with seperate hashtags and subsequently clean them
+df$hashtags <- strsplit(df$hashtags, split = "', '")
+df$hashtags <- lapply(df$hashtags, function(vector) {
+   gsub("\\[|\\]|'", "", vector)})  # Clean brackets and quotes
+
+df
+```
+
+**Calculate the most frequent used hashtag per user**
+
+```{r}
+mode <- function(x) {
+  # Remove NA values
+  x <- x[!is.na(x)]
+  
+  # Return NA if the vector is empty
+  if (length(x) == 0) {
+    return(NA)
+  }
+  
+  # Create a frequency table
+  freq_table <- table(x)
+  
+  # Find the most frequent value(s)
+  max_freq <- max(freq_table)
+  modes <- names(freq_table[freq_table == max_freq])
+  
+  # Return the first mode (or modify this to return all modes if desired)
+  return(modes[1])
+}
+
+
+user_hashtags <- data.frame(
+  userid = rep(df$userid, lengths(df$hashtags)), # Repeat `userid` for each element in `hashtags`
+  hashtags = unlist(df$hashtags)                # Flatten the `hashtags` list column
+)
+
+
+user_hashtags <- user_hashtags[user_hashtags$hashtags != "", ] #remove "" from table
+
+
+user_mode_hashtags <- aggregate(hashtags ~ userid, data= user_hashtags, FUN= mode)
+
+user_mode_hashtags
+```
+
+```{r}
+# Standardize by converting to lowercase
+user_mode_hashtags$hashtags <- tolower(user_mode_hashtags$hashtags)
+
+# Manual standardization for specific cases
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("sánchezseesconde", "sanchezseesconde")] <- "sanchezseesconde"
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("stopokupas", "stopokupas")] <- "stopokupas"
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("sánchezmentiroso", "sanchezmentiroso")] <- "sanchezmentiroso"
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("stopsoe", "stopsanchez", "sto")] <- "stopsanchez"
+```
+
+Most common are: niobreroniespañol - 31 sanchezseesconde - 30 stopokupas - 24 pedroselofunde - 13 decretazosánchez - 12 stopsanchez - 9 nohablamoshacemos - 7 ventealpp - 6 casadoconespaña - 6 objetivocasado - 6 prisiónpermanenterevisable - 5 vuelvezapatero - 5
+
+Make categories about sentiment of hashtags based on my understanding of their meanings:
+
+#Anti-Sánchez/PSOE: Hashtags criticizing or opposing the current government or Pedro Sánchez. sanchezseesconde sanchezmentiroso despídetedesánchez elsanchismoesruina decretazosánchez decretazotegi stopokupas stopsanchez stopsoe
+
+#Pro-PP/Casado: Hashtags supporting the Popular Party (PP) or its leader, Pablo Casado. casadoa3n casadoconespaña casadoconfjl objetivocasado pablocasadoeh ventealpp másppmáscultura másppmásigualdad másppmenosimpuestos valorseguro
+
+#Civic/General Issues: Broader topics not directly tied to political parties but relevant to societal concerns. prisiónpermanenterevisable democraciarealya libertadencataluña quenotelacuelen viveponiente republicaadelante
+
+#Media and Events: Hashtags referencing debates, media appearances, or popular culture. l6ndebatea7 debatertve micasaelecciones lavozasaltos3 lavozsemifinal éraseunarvezcasado juegodeescaños felizjueves
+
+#Other: Hashtags that do not fit neatly into other categories or have unclear context. niobreroniespañol rumbournasarv miprimerTweet túaboadillayoamajadahonda vuelvezapatero nuevovídeodelpsoe
+```{r}
+# Define a function to categorize hashtags
+categorize_hashtag <- function(hashtag) {
+  if (hashtag %in% c("sanchezseesconde", "sanchezmentiroso", "despídetedesánchez",
+                     "elsanchismoesruina", "decretazosánchez", "decretazotegi",
+                     "stopokupas", "stopsanchez", "stopsoe")) {
+    return("Anti-Sanchez/PSOE")
+  } else if (hashtag %in% c("casadoa3n", "casadoconespaña", "casadoconfjl",
+                            "objetivocasado", "pablocasadoeh", "ventealpp",
+                            "másppmáscultura", "másppmásigualdad",
+                            "másppmenosimpuestos", "valorseguro")) {
+    return("Pro-PP/Casado")
+  } else if (hashtag %in% c("prisiónpermanenterevisable", "democraciarealya",
+                            "libertadencataluña", "quenotelacuelen",
+                            "viveponiente", "republicaadelante")) {
+    return("Civic/General Issues")
+  } else if (hashtag %in% c("l6ndebatea7", "debatertve", "micasaelecciones",
+                            "lavozasaltos3", "lavozsemifinal",
+                            "éraseunarvezcasado", "juegodeescaños", "felizjueves")) {
+    return("Media and Events")
+  } else if (hashtag %in% c("niobreroniespañol", "rumbournasarv", "miprimerTweet",
+                            "túaboadillayoamajadahonda", "vuelvezapatero",
+                            "nuevovídeodelpsoe")) {
+    return("Other")
+  } else {
+    return("No hashtag used")  # For missing or uncategorized hashtags
+  }
+}
+
+# Apply the function to create a new column
+
+
+user_mode_hashtags$hashtag_category <- sapply(user_mode_hashtags$hashtags, categorize_hashtag)
+
+# View categorized data
+table(user_mode_hashtags$hashtag_category)
+
+user_mode_hashtags
+```
+
+## Create basic user statistics
+
+```{r}
+#group by user id and create aggregates for 
+
+mode2 <- function(x) {
+  x <- x[!is.na(x)] # Remove NA values
+  if (length(x) == 0) return(NA) # Return NA for empty groups
+  freq_table <- table(x)
+  names(freq_table)[which.max(freq_table)]
+}
+
+users <- unique(df$userid)
+user_location <- aggregate(user_reported_location ~ userid, data=df, FUN = mode2)
+user_follower <- aggregate(follower_count ~ userid, data=df, FUN = mode2)
+user_following <- aggregate(following_count ~ userid, data=df, FUN = mode2)
+user_acc_creation <- aggregate(account_creation_date ~ userid, data=df, FUN = mode2)
+user_acc_language <- aggregate(account_language ~ userid, data=df, FUN = mode2)
+user_tweet_language <- aggregate(tweet_language ~ userid, data=df, FUN = mode2)
+```
+
+## Create aggregated user statistics
+
+```{r}
+aggregated_stats <- aggregate(cbind(quote_count, reply_count, like_count, retweet_count) ~ userid, data=df, FUN = mean)
+```
+
+```{r}
+# Create a named vector for the standardized mapping
+location_map <- c(
+  "Islas Canarias, España" = "Canary Islands, Spain",
+  "Community of Madrid, Spain" = "Madrid, Spain",
+  "Burgos, España" = "Burgos, Spain",
+  "Madrid, Spain" = "Madrid, Spain",
+  "Alicante, Spain" = "Alicante, Spain",
+  "El Escorial, España" = "El Escorial, Spain",
+  "Seville, Spain" = "Seville, Spain",
+  "Madrid" = "Madrid, Spain",
+  "Córdoba, España" = "Córdoba, Spain",
+  "Rome, Lazio" = "Rome, Italy",
+  "España" = "Spain",
+  "Cantabria, España" = "Cantabria, Spain",
+  "Valencia, Spain" = "Valencia, Spain",
+  "Madrid, Comunidad de Madrid" = "Madrid, Spain",
+  "Soto del Real, España" = "Soto del Real, Spain",
+  "Fuenlabrada, Spain" = "Fuenlabrada, Spain",
+  "Barcelona, Spain" = "Barcelona, Spain",
+  "Barcelona, España" = "Barcelona, Spain",
+  "Segovia, Spain" = "Segovia, Spain",
+  "Ribadeo, Spain" = "Ribadeo, Spain",
+  "Getafe, España" = "Getafe, Spain",
+  "Santander" = "Santander, Spain",
+  "Comunidad de Madrid, España" = "Madrid, Spain",
+  "Cádiz-Sevilla" = "Cádiz, Spain",
+  "Spain" = "Spain",
+  "Toledo, España" = "Toledo, Spain",
+  "Pontevedra, España" = "Pontevedra, Spain",
+  "Granada, Spain" = "Granada, Spain",
+  "Zaragoza, España" = "Zaragoza, Spain",
+  "Principado de Asturias, España" = "Asturias, Spain",
+  "Cáceres, España" = "Cáceres, Spain",
+  "Lituania" = "Lithuania",
+  "Málaga, España" = "Málaga, Spain",
+  "Sevilla" = "Seville, Spain",
+  "Sevilla, España" = "Seville, Spain",
+  "Venezuela" = "Venezuela",
+  "Detrás de ti" = NA,
+  "Toledo" = "Toledo, Spain",
+  "Cuenca" = "Cuenca, Spain",
+  "Malaga, Spain" = "Málaga, Spain",
+  "Santander, Spain" = "Santander, Spain",
+  "Cadiz, Spain" = "Cádiz, Spain",
+  "Madrid - Plymouth" = "Madrid, Spain",
+  "Santiago de Compostela, Spain" = "Santiago de Compostela, Spain",
+  "Gijón, España" = "Gijón, Spain",
+  "Jaen, Spain" = "Jaén, Spain",
+  "Málaga" = "Málaga, Spain",
+  "Albacete, Spain" = "Albacete, Spain",
+  "Santa Cruz de Tenerife-Madrid" = "Santa Cruz de Tenerife, Spain",
+  "Móstoles, España" = "Móstoles, Spain",
+  "Lleida, España" = "Lleida, Spain",
+  "Lisboa, Portugal" = "Lisbon, Portugal",
+  "Huesca, España" = "Huesca, Spain",
+  "Cádiz, España" = "Cádiz, Spain",
+  "Extremadura, España" = "Extremadura, Spain",
+  "Ávila, España" = "Ávila, Spain",
+  "Santa cruz de tenerife, españa" = "Santa Cruz de Tenerife, Spain",
+  "Toledo, Spain" = "Toledo, Spain",
+  "Getafe, Spain" = "Getafe, Spain",
+  "Valencia, España" = "Valencia, Spain"
+)
+
+user_location$user_reported_location[is.na(user_location$user_reported_location)] <- "NA"
+
+# Use the mapping to standardize the locations in the vector
+user_location$user_reported_location <- location_map[user_location$user_reported_location]
+```
+
+### Left join everything to create final dataset
+
+```{r}
+
+final_nodes <- merge(x = aggregated_stats, y = user_location, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_follower, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_following, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_acc_creation, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_acc_language, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_tweet_language, by = "userid", all.x = TRUE)
+
+final_nodes <- merge(x = final_nodes, y = user_mode_hashtags, by = "userid", all.x = TRUE)
+
+final_nodes
+```
+
+# Create network edges dataset
+
+```{r}
+
+
+reply_network <- na.omit(subset(df_raw, select=c(userid, in_reply_to_userid)))
+reply_network <- subset(reply_network, in_reply_to_userid %in% users)
+
+retweet_network <- na.omit(subset(df_raw, select=c(userid, retweet_userid)))
+retweet_network <- subset(retweet_network, retweet_userid %in% users)
+
+reply_network
+retweet_network
+
+```
+
+## Basic Visualizations
+Follower counts:
+```{r}
+# You can get summary statistics of the follower count
+summary(final_nodes$follower_count)
+final_nodes$follower_count <- as.numeric(final_nodes$follower_count)
+
+hist(final_nodes$follower_count, 
+     main = "Histogram of Follower Counts", 
+     xlab = "Follower Count", 
+     ylab = "Frequency", 
+     breaks = 50,         
+     col = "lightblue",     
+     border = "white")  
+
+class(final_nodes$follower_count)
+```
+A lot of the accounts only have a few followers (0-100): the mean is 67.55
+
+Categories of hashtags:
+```{r}
+category_counts <- table(final_nodes$hashtag_category)
+category_counts
+```
+```{r}
+# Create a bar plot
+barplot(category_counts, main = "Distribution of Hashtag Categories", xlab = "Hashtag Categories", ylab = "Frequency", las = 2, col = "lightblue")
+
+```
+Anti-Sanchez/PSOE is the most common category.
+
+
+### Load the edges and join replies and retweets \> engagement dataframe
+
+```{r}
+#First load the csv containing the weighted edgelist
+#replies <- readr::read_csv("edgelist_replies.csv") = reply_network
+#retweets <- readr::read_csv("edgelist_retweets.csv") = retweet_network
+
+# Function to generate edgelist and vertex mapping
+generate_edgelist <- function(data, source_col, target_col) {
+  # Combine both source and target columns to create unique user list
+  unique_users <- unique(c(data[[source_col]], data[[target_col]]))
+  
+  # Create a mapping from user IDs to vertex IDs
+  user_to_vertex <- setNames(seq_along(unique_users), unique_users)
+  
+  # Replace user IDs with vertex IDs for edges
+  source_vertex <- user_to_vertex[data[[source_col]]]
+  target_vertex <- user_to_vertex[data[[target_col]]]
+  
+  # Create the edgelist as a data frame
+  edges <- data.frame(source_vertex, target_vertex)
+  
+  return(list(edges = edges, user_to_vertex = user_to_vertex))
+}
+
+
+replies_result <- generate_edgelist(reply_network, "userid", "in_reply_to_userid")
+replies_edgelist <- replies_result$edges
+
+retweets_result <- generate_edgelist(retweet_network, "userid", "retweet_userid")
+retweets_edgelist <- retweets_result$edges
+
+edges <- rbind(replies_edgelist, retweets_edgelist)
+```
+
+#Make an igraph of the edges
+```{r}
+engagement_graph <- snafun::to_igraph(edges, bipartite = FALSE, vertices = nodes)
+snafun::g_summary(engagement_graph)
+```
+
+
+```{r}
+# Remove self-loops in the igraph object
+engagement_no_loops <- igraph::simplify(engagement_graph, remove.loops = TRUE, remove.multiple = FALSE)
+
+# Remove isolates
+engagement_no_loops_isolates <- snafun::remove_isolates(engagement_no_loops)
+
+# Convert back to a snafun network
+net <- snafun::to_network(engagement_no_loops_isolates)
+
+
+# Summarize the updated network
+snafun::g_summary(net)
+
+network::plot.network(net, 
+              main = "Network Plot", 
+              vertex.cex = 1.5,        # Size of the nodes
+              vertex.col = "skyblue",  # Node color
+              edge.col = "gray",)       # Edge color
+```
+
+### Data analysis (Research Rationale)
+
+(about 500 words) – 1 POINTS \* Why is the ERGM/GERM/TERGM suitable for your research questions? \* Why did you pick the specific terms you picked in the model in order to test your hypotheses? \* Are there other methods to address these questions? If yes, why are the methods you chose better for this case?
+
+> Justify the dataset’s relevance to your research question by linking it to the structural terms you’re analyzing.
+
+> ERGM is particularly suited because it allows for modeling of complex structural dependencies, such as reciprocity and transitivity, which are expected in a coordinated network.
+
+> **Choice of Terms**: Justify each term selection in detail:
+
+### Baseline model
+
+```{r}
+m0 <- ergm::ergm(net ~ edges)
+summary(m0)
+```
+
+### Model 1 Hashtag Category (exogenous)
+
+```{r}
+# Model with edges and exogenous term
+
+m1 <- ergm::ergm(net ~ edges + nodematch("hashtag_category"))
+summary(m1)
+```
+
+### Model 2: Follower Count (exogenous)
+
+```{r}
+m2 <- ergm::ergm(net ~ edges + nodematch("hashtag_category") + nodeicov("follower_count"))
+summary(m2)
+```
+
+### Model 3: Reciprocity
+
+```{r}
+# Model with edges and mutual good!
+m3 <- ergm::ergm(net ~ edges + mutual)
+summary(m3)
+
+ergm::mcmc.diagnostics(m3)
+```
+
+### Model 5: Popularity (High in-degree)
+
+```{r}
+#look at what value is meaningful for the indegree
+max_in_degree <-sna::degree(net, cmode = "indegree")
+print(table(max_in_degree))
+```
+
+use a high in-degree: 7
+
+```{r}
+m5 <- ergm::ergm(net ~ edges + gwin)
+summary(m5)
+
+ergm::mcmc.diagnostics(m5)
+```
+
+### Model 6: Transitivity (triangles)
+
+```{r}
+# Fit the ERGM model with edges and triangles, using specific MCMC settings
+#m6 <- ergm::ergm(net ~ edges + triangle, control = ergm::control.ergm(MCMC.samplesize = 10000, MCMC.burnin = 1000))
+
+
+#summary(m6)
+
+#Make model converge:
+m6_fit <- ergm::ergm(net ~ edges + mutual + gwidegree(decay = 1.8, fixed = TRUE),
+                   control = ergm::control.ergm(
+                     MCMC.samplesize = 5000,
+                     MCMC.burnin = 1000,
+                     MCMLE.maxit = 20,
+                     parallel = 6,
+                     parallel.type = "PSOCK")
+                   )
+
+
+
+
+summary(m6_fit)
+ergm::mcmc.diagnostics(m6_fit)
+```
+
+## Final model
+
+```{r}
+#runs
+final <- ergm::ergm(net ~ edges + nodematch("hashtag_category") + nodeicov("follower_count") + mutual + gwdsp(decay = 2, fixed = TRUE),
+                    
+                   control = ergm::control.ergm(
+                     MCMC.samplesize = 15000,
+                     MCMC.burnin = 5000,
+                     MCMLE.maxit = 20,
+                     parallel = 6,
+                     parallel.type = "PSOCK")
+                   )
+
+
+ergm::mcmc.diagnostics(final)
+
+gof_results <- ergm::gof(final)
+plot(gof_results)
+
+summary(final)
+```
+
+```{r}
+#runs
+final <- ergm::ergm(net ~ edges + nodematch("hashtag_category") + nodeicov("follower_count") + mutual + idegree(d=7) + odegree(2),
+                   control = ergm::control.ergm(
+                     MCMC.samplesize = 15000,
+                     MCMC.burnin = 5000,
+                     MCMLE.maxit = 20,
+                     parallel = 6,))
+           
+```
+
+## Goodness of fit of model
+
+Use gof() functions to compare the model's predicted statistics with the observed network. Look at metrics like degree distribution, edgewise shared partners, and triad census.
+
+```{r}
+gof_results <- ergm::gof(final)
+plot(gof_results)
+```
+
+Interpret these!!!
+
+```{r}
+gof_results
+```
+
+Convergence Diagnostics: Check whether the model converged properly by examining MCMC diagnostics. Poor convergence might require adjusting MCMC.samplesize, burnin, or other settings.
+
+```{r}
+ergm::mcmc.diagnostics(final)
+```
+
+## Results
+
+(about 2000 words)
+
+-   Present your results appropriately (plots, tables…) and discuss your findings in plain English
+
+-   Discuss the meaning of your findings in relation to your hypothesis. (half of the points evaluated in this other part)
+
+Call: ergm::ergm(formula = net \~ edges + nodematch("hashtag_category") + nodeicov("follower_count") + mutual + idegree(d = 7) + gwesp(0.25, fixed = TRUE), control = ergm::control.ergm(MCMC.samplesize = 15000, MCMC.burnin = 5000, MCMLE.maxit = 20, parallel = 6, parallel.type = "PSOCK"))
+
+Monte Carlo Maximum Likelihood Results:
+
+```         
+                         Estimate Std. Error MCMC % z value Pr(>|z|)    
+```
+
+edges -5.5251265 0.3674001 0 -15.038 \<1e-04 ***nodematch.hashtag_category -0.8111542 0.1072493 0 -7.563 \<1e-04*** nodeicov.follower_count 0.0004187 0.0002301 0 1.820 0.0688 .\
+mutual 2.4017581 0.1436131 0 16.724 \<1e-04 ***idegree7 1.0554019 0.6150123 0 1.716 0.0861 .\
+gwesp.OTP.fixed.0.25 2.2568949 0.2686953 0 8.399 \<1e-04*** --- Signif. codes: 0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+```         
+ Null Deviance: 9781.7  on 7056  degrees of freedom
+```
+
+Residual Deviance: 832.8 on 7050 degrees of freedom
+
+AIC: 844.8 BIC: 886 (Smaller is better. MC Std. Err. = 0.9811)
+
+```{r echo = FALSE, results = 'asis'}
+# table example
+cn <- c("age", "gender", "eyes_col")
+one <- c(7, "M", "BLUE")
+two <- c(8, "F", "BROWN")
+three <- c(8, "M", "GREEN")
+four <- c(7, "F", "PINK")
+
+tab <- rbind(cn, one, two, three, four)
+rownames(tab) <- NULL
+knitr::kable(tab)
+```
+
+### ERGM
+
+(about 1000) – 2.5 POINTS
+
+-   Present your results appropriately (plots, tables…) and discuss your findings in plain English
+
+-   Discuss the meaning of your findings in relation to your hypothesis. (half of the points evaluated in this other part)
+
+Option 1:
+
+```{r model 1, echo = FALSE}
+# model results display example
+ctl <- c(4.17,5.58,5.18,6.11,4.50,4.61,5.17,4.53,5.33,5.14)
+trt <- c(4.81,4.17,4.41,3.59,5.87,3.83,6.03,4.89,4.32,4.69)
+group <- gl(2, 10, 20, labels = c("Ctl","Trt"))
+weight <- c(ctl, trt)
+lm.D9 <- lm(weight ~ group)
+lm.D90 <- lm(weight ~ group - 1)
+
+# install.packages("texreg")
+
+knitr::kable(texreg::matrixreg(lm.D9))
+
+
+```
+
+Option 2
+
+```{r model 2, echo = FALSE, results = 'asis'}
+# model results display example
+ctl <- c(4.17,5.58,5.18,6.11,4.50,4.61,5.17,4.53,5.33,5.14)
+trt <- c(4.81,4.17,4.41,3.59,5.87,3.83,6.03,4.89,4.32,4.69)
+group <- gl(2, 10, 20, labels = c("Ctl","Trt"))
+weight <- c(ctl, trt)
+lm.D9 <- lm(weight ~ group)
+lm.D90 <- lm(weight ~ group - 1)
+
+# install.packages("texreg")
+
+knitr::kable(texreg::matrixreg(list(lm.D9, lm.D90)))
+
+
+```
+
+Option 3
+
+```{r model 3, echo = FALSE}
+# model results display example
+ctl <- c(4.17,5.58,5.18,6.11,4.50,4.61,5.17,4.53,5.33,5.14)
+trt <- c(4.81,4.17,4.41,3.59,5.87,3.83,6.03,4.89,4.32,4.69)
+group <- gl(2, 10, 20, labels = c("Ctl","Trt"))
+weight <- c(ctl, trt)
+lm.D9 <- lm(weight ~ group)
+lm.D90 <- lm(weight ~ group - 1)
+
+# install.packages("texreg")
+
+
+texreg::plotreg(lm.D9)
+
+
+```
+
+Option 4
+
+```{r model 4, echo = FALSE}
+# model results display example
+ctl <- c(4.17,5.58,5.18,6.11,4.50,4.61,5.17,4.53,5.33,5.14)
+trt <- c(4.81,4.17,4.41,3.59,5.87,3.83,6.03,4.89,4.32,4.69)
+group <- gl(2, 10, 20, labels = c("Ctl","Trt"))
+weight <- c(ctl, trt)
+lm.D9 <- lm(weight ~ group)
+lm.D90 <- lm(weight ~ group - 1)
+
+# install.packages("texreg")
+
+texreg::plotreg(list(lm.D9, lm.D90))
+
+```
+
+## Conclusion
+
+(about 350 words) – 0.7 POINTS What were your topic and research questions again? (1 sentence)
+
+What did you learn from the two analysis you run? \*\*\* most important point to address 0.5 POINTS here
+
+Who benefits from your findings?
+
+What does remain an open problem?
+
+Can you give suggestions for future work in this area?
+
+## Supporting Material:
+
+Data exploration, Model explorations, Nested model results, and Goodness of Fit MUST be included in the Appendix, together with the code used to produce them. Also include all of the code used to get your data and the code used in data manipulation and data modeling.
+
+Do not include them in the main text, but do not forget to include them since you will be marked down if they are missing.
+
+The dataset also needs to be included, either as a separate file or as a link to a github repo or other online source where the data are readily available.
+
+\newpage
+
+# References
+
+```{=tex}
+\begingroup
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+```
+::: {#refs custom-style="Bibliography"}
+:::
+
+```{=tex}
+\endgroup
+```
+
+
