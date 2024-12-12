@@ -431,7 +431,7 @@ print(table(max_in_degree))
 
 ```{r}
 # Model with edges and mutual good!
-m4 <- ergm::ergm(net ~ edges + mutual + nodematch("hashtag_category") + nodeicov("follower_count") + gwidegree(decay = 1.8, fixed = TRUE),
+m4 <- ergm::ergm(net ~ edges + mutual + nodematch("hashtag_category") + nodeicov("follower_count"),
                   control = ergm::control.ergm(
                      MCMC.samplesize = 15000,
                      MCMC.burnin = 5000,
@@ -440,9 +440,38 @@ m4 <- ergm::ergm(net ~ edges + mutual + nodematch("hashtag_category") + nodeicov
                      parallel.type = "PSOCK")
                    )
 summary(m4)
+```
+
+```{r}
+# Model with edges and mutual good!
+m4 <- ergm::ergm(net ~ edges + mutual+ nodematch("hashtag_category") + 
+                   nodeicov("follower_count"), 
+                   control = ergm::control.ergm(
+                   MCMC.samplesize = 5000,
+                   MCMC.burnin = 1000,
+                   MCMLE.maxit = 20,
+                   parallel = 10,
+                   parallel.type = "PSOCK")
+                )
+summary(m4)
+```
+
+
+```{r}
+ergm::mcmc.diagnostics(m4)
 
 ```
 
+
+
+```{r}
+gof_results <- ergm::gof(m4)
+plot(gof_results)
+```
+
+```{r}
+plot(gof_results)
+```
 
 
 
