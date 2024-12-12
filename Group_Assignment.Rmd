@@ -246,6 +246,8 @@ final_nodes <- merge(x = final_nodes, y = user_tweet_language, by = "userid", al
 final_nodes <- merge(x = final_nodes, y = user_mode_hashtags, by = "userid", all.x = TRUE)
 
 final_nodes
+
+
 ```
 
 # Create network edges dataset
@@ -299,41 +301,15 @@ Anti-Sanchez/PSOE is the most common category.
 ### Load the edges and join replies and retweets \> engagement dataframe
 
 ```{r}
-#First load the csv containing the weighted edgelist
-#replies <- readr::read_csv("edgelist_replies.csv") = reply_network
-#retweets <- readr::read_csv("edgelist_retweets.csv") = retweet_network
+colnames(reply_network) <- c("from", "to")
+colnames(retweet_network) <- c("from", "to")
 
-# Function to generate edgelist and vertex mapping
-generate_edgelist <- function(data, source_col, target_col) {
-  # Combine both source and target columns to create unique user list
-  unique_users <- unique(c(data[[source_col]], data[[target_col]]))
-  
-  # Create a mapping from user IDs to vertex IDs
-  user_to_vertex <- setNames(seq_along(unique_users), unique_users)
-  
-  # Replace user IDs with vertex IDs for edges
-  source_vertex <- user_to_vertex[data[[source_col]]]
-  target_vertex <- user_to_vertex[data[[target_col]]]
-  
-  # Create the edgelist as a data frame
-  edges <- data.frame(source_vertex, target_vertex)
-  
-  return(list(edges = edges, user_to_vertex = user_to_vertex))
-}
-
-
-replies_result <- generate_edgelist(reply_network, "userid", "in_reply_to_userid")
-replies_edgelist <- replies_result$edges
-
-retweets_result <- generate_edgelist(retweet_network, "userid", "retweet_userid")
-retweets_edgelist <- retweets_result$edges
-
-edges <- rbind(replies_edgelist, retweets_edgelist)
+edges <- rbind(reply_network, retweet_network)
 ```
 
 #Make an igraph of the edges
 ```{r}
-engagement_graph <- snafun::to_igraph(edges, bipartite = FALSE, vertices = nodes)
+engagement_graph <- snafun::to_igraph(edges, bipartite = FALSE, vertices = final_nodes)
 snafun::g_summary(engagement_graph)
 ```
 
@@ -359,6 +335,20 @@ network::plot.network(net,
               edge.col = "gray",)       # Edge color
 ```
 
+```{r}
+# Assign `userid` as the vertex name for matching
+network::set.vertex.attribute(net, "userid", value = nodes$userid)
+
+# Set other vertex attributes
+network::set.vertex.attribute(net, "user_reported_location", value = nodes$user_reported_location)
+network::set.vertex.attribute(net, "follower_count", value = nodes$follower_count)
+network::set.vertex.attribute(net, "following_count", value = nodes$following_count)
+network::set.vertex.attribute(net, "account_language", value = nodes$account_language)
+network::set.vertex.attribute(net, "hashtag_category", value = nodes$hashtag_category)
+network::set.vertex.attribute(net, "hashtag", value = nodes$hashtags)
+```
+
+
 ### Data analysis (Research Rationale)
 
 (about 500 words) – 1 POINTS \* Why is the ERGM/GERM/TERGM suitable for your research questions? \* Why did you pick the specific terms you picked in the model in order to test your hypotheses? \* Are there other methods to address these questions? If yes, why are the methods you chose better for this case?
@@ -380,6 +370,7 @@ summary(m0)
 
 ```{r}
 # Model with edges and exogenous term
+
 
 m1 <- ergm::ergm(net ~ edges + nodematch("hashtag_category"))
 summary(m1)
@@ -507,26 +498,6 @@ ergm::mcmc.diagnostics(final)
 -   Present your results appropriately (plots, tables…) and discuss your findings in plain English
 
 -   Discuss the meaning of your findings in relation to your hypothesis. (half of the points evaluated in this other part)
-
-Call: ergm::ergm(formula = net \~ edges + nodematch("hashtag_category") + nodeicov("follower_count") + mutual + idegree(d = 7) + gwesp(0.25, fixed = TRUE), control = ergm::control.ergm(MCMC.samplesize = 15000, MCMC.burnin = 5000, MCMLE.maxit = 20, parallel = 6, parallel.type = "PSOCK"))
-
-Monte Carlo Maximum Likelihood Results:
-
-```         
-                         Estimate Std. Error MCMC % z value Pr(>|z|)    
-```
-
-edges -5.5251265 0.3674001 0 -15.038 \<1e-04 ***nodematch.hashtag_category -0.8111542 0.1072493 0 -7.563 \<1e-04*** nodeicov.follower_count 0.0004187 0.0002301 0 1.820 0.0688 .\
-mutual 2.4017581 0.1436131 0 16.724 \<1e-04 ***idegree7 1.0554019 0.6150123 0 1.716 0.0861 .\
-gwesp.OTP.fixed.0.25 2.2568949 0.2686953 0 8.399 \<1e-04*** --- Signif. codes: 0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-
-```         
- Null Deviance: 9781.7  on 7056  degrees of freedom
-```
-
-Residual Deviance: 832.8 on 7050 degrees of freedom
-
-AIC: 844.8 BIC: 886 (Smaller is better. MC Std. Err. = 0.9811)
 
 ```{r echo = FALSE, results = 'asis'}
 # table example
