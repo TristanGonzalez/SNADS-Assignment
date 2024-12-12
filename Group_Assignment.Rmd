@@ -337,15 +337,15 @@ network::plot.network(net,
 
 ```{r}
 # Assign `userid` as the vertex name for matching
-network::set.vertex.attribute(net, "userid", value = nodes$userid)
+network::set.vertex.attribute(net, "userid", value = final_nodes$userid)
 
 # Set other vertex attributes
-network::set.vertex.attribute(net, "user_reported_location", value = nodes$user_reported_location)
-network::set.vertex.attribute(net, "follower_count", value = nodes$follower_count)
-network::set.vertex.attribute(net, "following_count", value = nodes$following_count)
-network::set.vertex.attribute(net, "account_language", value = nodes$account_language)
-network::set.vertex.attribute(net, "hashtag_category", value = nodes$hashtag_category)
-network::set.vertex.attribute(net, "hashtag", value = nodes$hashtags)
+network::set.vertex.attribute(net, "user_reported_location", value = final_nodes$user_reported_location)
+network::set.vertex.attribute(net, "follower_count", value = final_nodes$follower_count)
+network::set.vertex.attribute(net, "following_count", value = final_nodes$following_count)
+network::set.vertex.attribute(net, "account_language", value = final_nodes$account_language)
+network::set.vertex.attribute(net, "hashtag_category", value = final_nodes$hashtag_category)
+network::set.vertex.attribute(net, "hashtag", value = final_nodes$hashtags)
 ```
 
 
