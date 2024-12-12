@@ -114,24 +114,32 @@ categorize_hashtag <- function(hashtag) {
                             "lavozasaltos3", "lavozsemifinal",
                             "éraseunarvezcasado", "juegodeescaños", "felizjueves")) {
     return("Media and Events")
+  } else if (hashtag %in% c("pedroselofunde", "stopsanchez", "stopokupas",
+                            "decretazosánchez", "elsanchismoesruina", "sanchezmentiroso")) {
+    return("Anti-Socialist Campaign")
+  } else if (hashtag %in% c("ghdúo", "lavozasaltos3", "micasaelecciones", "eldebatelv")) {
+    return("TV and Entertainment")
+  } else if (hashtag %in% c("porlaconciliaciónreal", "nohablamoshacemos", "falconviajes",
+                            "elppeseconomía", "assassinscreed", "agua")) {
+    return("Social and Economic Topics")
   } else if (hashtag %in% c("niobreroniespañol", "rumbournasarv", "miprimerTweet",
                             "túaboadillayoamajadahonda", "vuelvezapatero",
                             "nuevovídeodelpsoe")) {
-    return("Other")
+    return("Cultural/Personal Topics")
+  } else if (hashtag %in% c("juegodetronos", "endirecto", "felizjueves", 
+                            "concalma", "deseo", "ghdúo9a")) {
+    return("Lifestyle and Fun")
   } else {
-    return("No hashtag used")  # For missing or uncategorized hashtags
+    return("Uncategorized")
   }
 }
 
 # Apply the function to create a new column
-
+user_mode_hashtags <- user_mode_hashtags[!is.na(user_mode_hashtags$hashtag), ]
 
 user_mode_hashtags$hashtag_category <- sapply(user_mode_hashtags$hashtags, categorize_hashtag)
-
-# View categorized data
 table(user_mode_hashtags$hashtag_category)
 
-user_mode_hashtags
 ```
 
 ## Create basic user statistics
