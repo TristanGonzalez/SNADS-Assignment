@@ -271,8 +271,9 @@ retweet_network
 Follower counts:
 ```{r}
 # You can get summary statistics of the follower count
-summary(final_nodes$follower_count)
+table(final_nodes$follower_count)
 final_nodes$follower_count <- as.numeric(final_nodes$follower_count)
+final_nodes$following_count <- as.numeric(final_nodes$following_count)
 
 hist(final_nodes$follower_count, 
      main = "Histogram of Follower Counts", 
@@ -282,9 +283,24 @@ hist(final_nodes$follower_count,
      col = "lightblue",     
      border = "white")  
 
-class(final_nodes$follower_count)
 ```
 A lot of the accounts only have a few followers (0-100): the mean is 67.55
+
+Following counts:
+```{r}
+# You can get summary statistics of the follower count
+final_nodes$following_count <- as.numeric(final_nodes$following_count)
+table(final_nodes$following_count)
+
+hist(final_nodes$following_count, 
+     main = "Histogram of Following Counts", 
+     xlab = "Following Count", 
+     ylab = "Frequency", 
+     breaks = 50,         
+     col = "lightblue",     
+     border = "white")  
+
+```
 
 Categories of hashtags:
 ```{r}
@@ -327,13 +343,28 @@ net <- snafun::to_network(engagement_no_loops_isolates)
 ```
 
 ```{r}
+#Normalize numeric attributes
+follower_count <- final_nodes$follower_count
+normalized_follower_count <- (follower_count - min(follower_count, na.rm = TRUE)) / 
+                             (max(follower_count, na.rm = TRUE) - min(follower_count, na.rm = TRUE))
+network::set.vertex.attribute(net, "normalized_follower_count", value = normalized_follower_count)
+
+following_count <- final_nodes$following_count
+normalized_following_count <- (following_count - min(following_count, na.rm = TRUE)) / 
+                              (max(following_count, na.rm = TRUE) - min(following_count, na.rm = TRUE))
+network::set.vertex.attribute(net, "normalized_following_count", value = normalized_following_count)
+
+```
+
+
+```{r}
 # Assign `userid` as the vertex name for matching
 network::set.vertex.attribute(net, "userid", value = final_nodes$userid)
 
 # Set other vertex attributes
 network::set.vertex.attribute(net, "user_reported_location", value = final_nodes$user_reported_location)
-network::set.vertex.attribute(net, "follower_count", value = final_nodes$follower_count)
-network::set.vertex.attribute(net, "following_count", value = final_nodes$following_count)
+#network::set.vertex.attribute(net, "follower_count", value = final_nodes$follower_count)
+#network::set.vertex.attribute(net, "following_count", value = final_nodes$following_count)
 network::set.vertex.attribute(net, "account_language", value = final_nodes$account_language)
 network::set.vertex.attribute(net, "hashtag_category", value = final_nodes$hashtag_category)
 network::set.vertex.attribute(net, "hashtags", value = final_nodes$hashtags)
@@ -350,12 +381,16 @@ print(node_degrees)
 # Summarize the updated network
 snafun::g_summary(net)
 
+#Determine key nodes
 key_nodes <- which(node_degrees > 50)
 # Default color for all nodes
 node_colors <- rep("skyblue", network::network.size(net))  
-
 # Assign "red" to nodes with degree > threshold
 node_colors[key_nodes] <- "red"
+
+#Highlight bridge nodes
+bridge_nodes <- (sna::betweenness(net)) > 1000
+node_colors[bridge_nodes] <- "yellow"
 
 network::plot.network(net, 
                       main = "Network Plot with Highlighted Nodes", 
@@ -363,9 +398,42 @@ network::plot.network(net,
                       vertex.col = node_colors, # Use the color vector
                       edge.col = "gray",        # Edge color
                       mode = "fruchtermanreingold")  # Layout   
+
+# Add a legend
+legend("bottomleft",                   # Position of the legend
+       legend = c("Key Nodes (Degree > 50)", "Bridge Nodes (Betweenness > 1000)", "Other Nodes"),
+       col = c("red", 'yellow', "skyblue"),    # Corresponding colors
+       pch = 19,                    # Symbol (circle)
+       pt.cex = 1,                 # Size of the symbols
+       bty = "n")  
+```
+#Determine communities with walktrap algorithm
+```{r}
+graph <- snafun::to_igraph(net)
+walktrap <- snafun::extract_comm_walktrap(graph)
+
+plot(walktrap, graph, 
+     vertex.label = NA,
+     vertex.size = 5,         
+     edge.width = 1,         
+     edge.color = "grey",
+     edge.arrow.size = 0.2)
 ```
 
+#Add communities as vertex attribute
+```{r}
+# Extract community membership from the walktrap result
+membership <- igraph::membership(walktrap)
 
+# Remove names from the community membership vector
+membership <- as.vector(membership)
+
+# Add the community membership as a vertex attribute to the network object
+network::set.vertex.attribute(net, "community", value = membership)
+
+# Check if the community attribute is added correctly
+print(network::get.vertex.attribute(net, "community"))
+```
 ### Data analysis (Research Rationale)
 
 (about 500 words) – 1 POINTS \* Why is the ERGM/GERM/TERGM suitable for your research questions? \* Why did you pick the specific terms you picked in the model in order to test your hypotheses? \* Are there other methods to address these questions? If yes, why are the methods you chose better for this case?
@@ -384,43 +452,213 @@ summary(m0)
 ```
 
 
-
 ```{r}
-m1 <- ergm::ergm(net ~ edges + nodematch("hashtag_category"))
+m1 <- ergm::ergm(net ~ edges + nodecov("community"))
 summary(m1)
 ```
 
+```{r}
+gof_results <- ergm::gof(m1)
+plot(gof_results)
+```
 
+```{r}
+network::list.vertex.attributes(net)
+```
 
 
 
 
 ```{r}
-model <- ergm::ergm(
-  net ~ 
-    edges + nodematch("hashtag_category") + 
-                   nodeicov("follower_count") + 
-    idegrange(from = 0, to = 2) +
-    idegrange(from = 3, to = 6) +
-     idegrange(from = 7, to = +Inf)
-  , control = ergm::control.ergm(
-                     MCMC.samplesize = 100000,
-                     MCMC.burnin = 10000,
-                     MCMLE.maxit = 40,
-                     parallel = 10,
-                     parallel.type = "PSOCK")
-                   )
+m2 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category"))
   
   
-summary(model)
+summary(m2)
 ```
+```{r}
+gof_results <- ergm::gof(m2)
+plot(gof_results)
+```
+```{r}
+#look at what value is meaningful for the indegree
+max_in_degree <- max(sna::degree(net, cmode = "indegree"))
+print(max_in_degree)
+
+in_degree <- sna::degree(net, cmode = "indegree")
+table(in_degree)
+
 ```
 
 ```{r}
-ergm::mcmc.diagnostics(model)
-gof_results <- ergm::gof(model)
+m3 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + idegree(d=0))
+  
+  
+summary(m3)
+```
+```{r}
+m3 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + idegree(d=0),
+                 control = ergm::control.ergm(
+                   MCMC.samplesize = 15000,
+                   MCMC.burnin = 5000,
+                   MCMLE.maxit = 20,
+                   parallel = 4,
+                   parallel.type = "PSOCK"))
+  
+  
+summary(m3)
+```
+
+```{r}
+# Clear the current plot window
+# Adjust margins
+par(mar = c(3, 3, 1, 1))  # You can experiment with different values here
+
+```
+
+
+```{r}
+#ergm::mcmc.diagnostics(m3)
+gof_results <- ergm::gof(m3)
 plot(gof_results)
 
 ```
 
+
+```{r}
+m4 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + idegree(d=0)
+                 + mutual,
+                 control = ergm::control.ergm(
+                   MCMC.samplesize = 15000,
+                   MCMC.burnin = 5000,
+                   MCMLE.maxit = 20,
+                   parallel = 4,
+                   parallel.type = "PSOCK"))
+  
+  
+summary(m4)
+```
+```{r}
+gof_m4 <- ergm::gof(m4)
+plot(gof_m4)
+```
+
+
+```{r}
+m5 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + mutual
+                 + gwesp(0.25, fixed = TRUE),
+                 control = ergm::control.ergm(
+                   MCMC.samplesize = 15000,
+                   MCMC.burnin = 5000,
+                   MCMLE.maxit = 20,
+                   parallel = 4,
+                   parallel.type = "PSOCK"))
+  
+  
+summary(m5)
+```
+```{r}
+gof_m5 <- ergm::gof(m5)
+plot(gof_m5)
+```
+
+```{r}
+ergm:: search.ergmTerms("star")
+```
+
+```{r}
+#Did not run
+m5 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + mutual
+                 + gwesp(0.25, fixed = TRUE)
+                 + istar(20),
+                 control = ergm::control.ergm(
+                   MCMC.samplesize = 15000,
+                   MCMC.burnin = 5000,
+                   MCMLE.maxit = 20,
+                   parallel = 4,
+                   parallel.type = "PSOCK"))
+  
+  
+summary(m5)
+```
+#More endogenous terms
+```{r}
+m6 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + nodeicov("follower_count")
+                 + idegree(d=0)
+                 + mutual,
+                 control = ergm::control.ergm(
+                   MCMC.samplesize = 15000,
+                   MCMC.burnin = 5000,
+                   MCMLE.maxit = 20,
+                   parallel = 4,
+                   parallel.type = "PSOCK"))
+  
+  
+summary(m6)
+```
+```{r}
+gof_m6 <- ergm::gof(m6)
+plot(gof_m6)
+```
+
+```{r}
+
+m6 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + nodeicov("follower_count")
+                 + odegree(0)
+                 + mutual
+                 + gwesp(0.25, fixed = TRUE),
+                 control = ergm::control.ergm(
+                   MCMC.samplesize = 15000,
+                   MCMC.burnin = 5000,
+                   MCMLE.maxit = 20,
+                   parallel = 4,
+                   parallel.type = "PSOCK"))
+  
+  
+summary(m6)
+```
+
+```{r}
+
+m6 <- ergm::ergm(net ~ edges 
+                 + nodecov("community") 
+                 + nodematch("hashtag_category")
+                 + nodeicov("follower_count")
+                 + odegree(0)
+                 + idegree(2)
+                 + mutual
+                 + gwesp(0.25, fixed = TRUE)
+                 + geodist,
+                 control = ergm::control.ergm(
+                   MCMC.samplesize = 15000,
+                   MCMC.burnin = 5000,
+                   MCMLE.maxit = 20,
+                   parallel = 4,
+                   parallel.type = "PSOCK"))
+  
+  
+summary(m6)
+```
 
