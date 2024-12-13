@@ -1,0 +1,506 @@
+---
+title: "Preprocessing"
+output: html_document
+date: "2024-11-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Feature Creation
+
+**Load Dataset**
+
+```{r}
+df_raw <- readr::read_csv("spain_082019_tweets_csv_hashed.csv")
+tail(df_raw)
+
+```
+
+**Choose selection of columns and turn hashtags into a list of vectors**
+
+```{r}
+df <- subset(df_raw, select=c(userid, user_reported_location, follower_count, following_count, account_creation_date, account_language, tweet_language, quote_count, reply_count, like_count, retweet_count, hashtags))
+
+# Convert hashtags into a list of vectors
+df$hashtags <- lapply(df$hashtags, function(h) {
+  h <- strsplit(h, split = "', '")[[1]]  # Split on delimiter
+  gsub("\\[|\\]|'", "", h)  # Remove brackets and quotes
+})
+
+df$hashtags[df$hashtags == ""] <- NA
+
+df
+```
+
+**Calculate the most frequent used hashtag per user**
+
+```{r}
+mode <- function(x) {
+  if(all(is.na(x))){
+    NA
+  }else {freq_table <- table(x)
+  max_freq <- max(freq_table)
+  modes <- names(freq_table[freq_table == max_freq])
+  modes[1]}
+  
+}
+
+user_hashtags <- data.frame(
+  userid = rep(df$userid, lengths(df$hashtags)),
+  hashtags = unlist(df$hashtags)          
+)
+
+
+user_mode_hashtags <- aggregate(hashtags ~ userid, data = user_hashtags, FUN = mode, na.action =NULL )
+user_mode_hashtags
+```
+
+```{r}
+# Standardize by converting to lowercase
+user_mode_hashtags$hashtags <- tolower(user_mode_hashtags$hashtags)
+
+# Manual standardization for specific cases
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("sánchezseesconde", "sanchezseesconde")] <- "sanchezseesconde"
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("stopokupas", "stopokupas")] <- "stopokupas"
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("sánchezmentiroso", "sanchezmentiroso")] <- "sanchezmentiroso"
+user_mode_hashtags$hashtags[user_mode_hashtags$hashtags %in% c("stopsoe", "stopsanchez", "sto")] <- "stopsanchez"
+```
+
+Most common are: niobreroniespañol - 31 sanchezseesconde - 30 stopokupas - 24 pedroselofunde - 13 decretazosánchez - 12 stopsanchez - 9 nohablamoshacemos - 7 ventealpp - 6 casadoconespaña - 6 objetivocasado - 6 prisiónpermanenterevisable - 5 vuelvezapatero - 5
+
+Make categories about sentiment of hashtags based on my understanding of their meanings:
+
+#Anti-Sánchez/PSOE: Hashtags criticizing or opposing the current government or Pedro Sánchez. sanchezseesconde sanchezmentiroso despídetedesánchez elsanchismoesruina decretazosánchez decretazotegi stopokupas stopsanchez stopsoe
+
+#Pro-PP/Casado: Hashtags supporting the Popular Party (PP) or its leader, Pablo Casado. casadoa3n casadoconespaña casadoconfjl objetivocasado pablocasadoeh ventealpp másppmáscultura másppmásigualdad másppmenosimpuestos valorseguro
+
+#Civic/General Issues: Broader topics not directly tied to political parties but relevant to societal concerns. prisiónpermanenterevisable democraciarealya libertadencataluña quenotelacuelen viveponiente republicaadelante
+
+#Media and Events: Hashtags referencing debates, media appearances, or popular culture. l6ndebatea7 debatertve micasaelecciones lavozasaltos3 lavozsemifinal éraseunarvezcasado juegodeescaños felizjueves
+
+#Other: Hashtags that do not fit neatly into other categories or have unclear context. niobreroniespañol rumbournasarv miprimerTweet túaboadillayoamajadahonda vuelvezapatero nuevovídeodelpsoe
+
+```{r}
+user_mode_hashtags$hashtags
+```
+
+
+```{r}
+# Define a function to categorize hashtags
+categorize_hashtag <- function(hashtag) {
+  if (hashtag %in% c("sanchezseesconde", "sanchezmentiroso", "despídetedesánchez",
+                     "elsanchismoesruina", "decretazosánchez", "decretazotegi",
+                     "stopokupas", "stopsanchez", "stopsoe")) {
+    return("Anti-Sanchez/PSOE")
+  } else if (hashtag %in% c("casadoa3n", "casadoconespaña", "casadoconfjl",
+                            "objetivocasado", "pablocasadoeh", "ventealpp",
+                            "másppmáscultura", "másppmásigualdad",
+                            "másppmenosimpuestos", "valorseguro")) {
+    return("Pro-PP/Casado")
+  } else if (hashtag %in% c("prisiónpermanenterevisable", "democraciarealya",
+                            "libertadencataluña", "quenotelacuelen",
+                            "viveponiente", "republicaadelante")) {
+    return("Civic/General Issues")
+  } else if (hashtag %in% c("l6ndebatea7", "debatertve", "micasaelecciones",
+                            "lavozasaltos3", "lavozsemifinal",
+                            "éraseunarvezcasado", "juegodeescaños", "felizjueves")) {
+    return("Media and Events")
+  } else if (hashtag %in% c("pedroselofunde", "stopsanchez", "stopokupas",
+                            "decretazosánchez", "elsanchismoesruina", "sanchezmentiroso", 
+                            "ghdúo", "lavozasaltos3", "micasaelecciones", "eldebatelv")) {
+    return("Anti-Socialist Campaign")
+  } else if (hashtag %in% c("porlaconciliaciónreal", "nohablamoshacemos", "falconviajes",
+                            "elppeseconomía", "assassinscreed", "agua")) {
+    return("Social and Economic Topics")
+  } else if (hashtag %in% c("niobreroniespañol", "rumbournasarv", "miprimerTweet",
+                            "túaboadillayoamajadahonda", "vuelvezapatero",
+                            "nuevovídeodelpsoe")) {
+    return("Cultural/Personal Topics")
+  } else if (hashtag %in% c("juegodetronos", "endirecto", "felizjueves", 
+                            "concalma", "deseo", "ghdúo9a")) {
+    return("Lifestyle and Fun")
+  } else {
+    return("Uncategorized")
+  }
+}
+
+# Apply the function to create a new column
+
+
+user_mode_hashtags$hashtag_category <- sapply(user_mode_hashtags$hashtags, categorize_hashtag)
+
+table(user_mode_hashtags$hashtag_category)
+
+sum(is.na(user_mode_hashtags$hashtag_category))
+
+(user_mode_hashtags)
+
+```
+
+## Create basic user statistics
+
+```{r}
+#group by user id and create aggregates for 
+
+mode2 <- function(x) {
+  x <- x[!is.na(x)] # Remove NA values
+  if (length(x) == 0) return(NA) # Return NA for empty groups
+  freq_table <- table(x)
+  names(freq_table)[which.max(freq_table)]
+}
+
+users <- unique(df$userid)
+user_location <- aggregate(user_reported_location ~ userid, data=df, FUN = mode2)
+user_follower <- aggregate(follower_count ~ userid, data=df, FUN = mode2)
+user_following <- aggregate(following_count ~ userid, data=df, FUN = mode2)
+user_acc_creation <- aggregate(account_creation_date ~ userid, data=df, FUN = mode2)
+user_acc_language <- aggregate(account_language ~ userid, data=df, FUN = mode2)
+user_tweet_language <- aggregate(tweet_language ~ userid, data=df, FUN = mode2)
+```
+
+## Create aggregated user statistics
+
+```{r}
+aggregated_stats <- aggregate(cbind(quote_count, reply_count, like_count, retweet_count) ~ userid, data=df, FUN = mean)
+
+aggregated_stats
+```
+
+```{r}
+# Create a named vector for the standardized mapping
+location_map <- c(
+  "Islas Canarias, España" = "Canary Islands, Spain",
+  "Community of Madrid, Spain" = "Madrid, Spain",
+  "Burgos, España" = "Burgos, Spain",
+  "Madrid, Spain" = "Madrid, Spain",
+  "Alicante, Spain" = "Alicante, Spain",
+  "El Escorial, España" = "El Escorial, Spain",
+  "Seville, Spain" = "Seville, Spain",
+  "Madrid" = "Madrid, Spain",
+  "Córdoba, España" = "Córdoba, Spain",
+  "Rome, Lazio" = "Rome, Italy",
+  "España" = "Spain",
+  "Cantabria, España" = "Cantabria, Spain",
+  "Valencia, Spain" = "Valencia, Spain",
+  "Madrid, Comunidad de Madrid" = "Madrid, Spain",
+  "Soto del Real, España" = "Soto del Real, Spain",
+  "Fuenlabrada, Spain" = "Fuenlabrada, Spain",
+  "Barcelona, Spain" = "Barcelona, Spain",
+  "Barcelona, España" = "Barcelona, Spain",
+  "Segovia, Spain" = "Segovia, Spain",
+  "Ribadeo, Spain" = "Ribadeo, Spain",
+  "Getafe, España" = "Getafe, Spain",
+  "Santander" = "Santander, Spain",
+  "Comunidad de Madrid, España" = "Madrid, Spain",
+  "Cádiz-Sevilla" = "Cádiz, Spain",
+  "Spain" = "Spain",
+  "Toledo, España" = "Toledo, Spain",
+  "Pontevedra, España" = "Pontevedra, Spain",
+  "Granada, Spain" = "Granada, Spain",
+  "Zaragoza, España" = "Zaragoza, Spain",
+  "Principado de Asturias, España" = "Asturias, Spain",
+  "Cáceres, España" = "Cáceres, Spain",
+  "Lituania" = "Lithuania",
+  "Málaga, España" = "Málaga, Spain",
+  "Sevilla" = "Seville, Spain",
+  "Sevilla, España" = "Seville, Spain",
+  "Venezuela" = "Venezuela",
+  "Detrás de ti" = NA,
+  "Toledo" = "Toledo, Spain",
+  "Cuenca" = "Cuenca, Spain",
+  "Malaga, Spain" = "Málaga, Spain",
+  "Santander, Spain" = "Santander, Spain",
+  "Cadiz, Spain" = "Cádiz, Spain",
+  "Madrid - Plymouth" = "Madrid, Spain",
+  "Santiago de Compostela, Spain" = "Santiago de Compostela, Spain",
+  "Gijón, España" = "Gijón, Spain",
+  "Jaen, Spain" = "Jaén, Spain",
+  "Málaga" = "Málaga, Spain",
+  "Albacete, Spain" = "Albacete, Spain",
+  "Santa Cruz de Tenerife-Madrid" = "Santa Cruz de Tenerife, Spain",
+  "Móstoles, España" = "Móstoles, Spain",
+  "Lleida, España" = "Lleida, Spain",
+  "Lisboa, Portugal" = "Lisbon, Portugal",
+  "Huesca, España" = "Huesca, Spain",
+  "Cádiz, España" = "Cádiz, Spain",
+  "Extremadura, España" = "Extremadura, Spain",
+  "Ávila, España" = "Ávila, Spain",
+  "Santa cruz de tenerife, españa" = "Santa Cruz de Tenerife, Spain",
+  "Toledo, Spain" = "Toledo, Spain",
+  "Getafe, Spain" = "Getafe, Spain",
+  "Valencia, España" = "Valencia, Spain"
+)
+
+user_location$user_reported_location[is.na(user_location$user_reported_location)] <- "NA"
+
+# Use the mapping to standardize the locations in the vector
+user_location$user_reported_location <- location_map[user_location$user_reported_location]
+```
+
+### Left join everything to create final dataset
+
+```{r}
+
+final_nodes <- merge(x = aggregated_stats, y = user_location, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_follower, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_following, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_acc_creation, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_acc_language, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_tweet_language, by = "userid", all.x = TRUE)
+final_nodes <- merge(x = final_nodes, y = user_mode_hashtags, by = "userid", all.x = TRUE)
+final_nodes
+```
+
+# Create network edges dataset
+
+```{r}
+reply_network <- na.omit(subset(df_raw, select=c(userid, in_reply_to_userid)))
+reply_network <- subset(reply_network, in_reply_to_userid %in% users)
+
+retweet_network <- na.omit(subset(df_raw, select=c(userid, retweet_userid)))
+retweet_network <- subset(retweet_network, retweet_userid %in% users)
+
+reply_network
+retweet_network
+
+```
+
+## Basic Visualizations
+Follower counts:
+```{r}
+# You can get summary statistics of the follower count
+summary(final_nodes$follower_count)
+final_nodes$follower_count <- as.numeric(final_nodes$follower_count)
+
+hist(final_nodes$follower_count, 
+     main = "Histogram of Follower Counts", 
+     xlab = "Follower Count", 
+     ylab = "Frequency", 
+     breaks = 50,         
+     col = "lightblue",     
+     border = "white")  
+
+class(final_nodes$follower_count)
+```
+A lot of the accounts only have a few followers (0-100): the mean is 67.55
+
+Categories of hashtags:
+```{r}
+category_counts <- table(final_nodes$hashtag_category)
+category_counts
+```
+```{r}
+# Create a bar plot
+barplot(category_counts, main = "Distribution of Hashtag Categories", xlab = "Hashtag Categories", ylab = "Frequency", las = 2, col = "lightblue")
+
+```
+Anti-Sanchez/PSOE is the most common category.
+
+
+### Load the edges and join replies and retweets \> engagement dataframe
+
+```{r}
+colnames(reply_network) <- c("from", "to")
+colnames(retweet_network) <- c("from", "to")
+
+edges <- rbind(reply_network, retweet_network)
+```
+
+#Make an igraph of the edges
+```{r}
+engagement_graph <- snafun::to_igraph(edges, bipartite = FALSE, vertices = final_nodes)
+snafun::g_summary(engagement_graph)
+```
+
+
+```{r}
+# Remove self-loops in the igraph object
+engagement_no_loops <- igraph::simplify(engagement_graph, remove.loops = TRUE, remove.multiple = FALSE)
+
+# Remove isolates
+engagement_no_loops_isolates <- snafun::remove_isolates(engagement_no_loops)
+
+# Convert back to a snafun network
+net <- snafun::to_network(engagement_no_loops_isolates)
+
+
+# Summarize the updated network
+snafun::g_summary(net)
+
+network::plot.network(net, 
+              main = "Network Plot", 
+              vertex.cex = 1.5,        # Size of the nodes
+              vertex.col = "skyblue",  # Node color
+              edge.col = "gray",)       # Edge color
+```
+
+```{r}
+# Assign `userid` as the vertex name for matching
+network::set.vertex.attribute(net, "userid", value = final_nodes$userid)
+
+# Set other vertex attributes
+network::set.vertex.attribute(net, "user_reported_location", value = final_nodes$user_reported_location)
+network::set.vertex.attribute(net, "follower_count", value = final_nodes$follower_count)
+network::set.vertex.attribute(net, "following_count", value = final_nodes$following_count)
+network::set.vertex.attribute(net, "account_language", value = final_nodes$account_language)
+network::set.vertex.attribute(net, "hashtag_category", value = final_nodes$hashtag_category)
+network::set.vertex.attribute(net, "hashtags", value = final_nodes$hashtags)
+```
+
+
+### Data analysis (Research Rationale)
+
+(about 500 words) – 1 POINTS \* Why is the ERGM/GERM/TERGM suitable for your research questions? \* Why did you pick the specific terms you picked in the model in order to test your hypotheses? \* Are there other methods to address these questions? If yes, why are the methods you chose better for this case?
+
+> Justify the dataset’s relevance to your research question by linking it to the structural terms you’re analyzing.
+
+> ERGM is particularly suited because it allows for modeling of complex structural dependencies, such as reciprocity and transitivity, which are expected in a coordinated network.
+
+> **Choice of Terms**: Justify each term selection in detail:
+
+### Baseline model
+
+```{r}
+m0 <- ergm::ergm(net ~ edges)
+summary(m0)
+```
+
+
+
+```{r}
+m1 <- ergm::ergm(net ~ edges + nodematch("hashtag_category"))
+summary(m1)
+```
+
+```{r}
+# Calculate the degree of each node
+degree_vector <- snafun::v_degree(net)
+
+# Create a binary vector where 1 = high degree, 0 = otherwise
+high_degree <- ifelse(degree_vector > 50, 1, 0)
+snafun::add_vertex_attributes(net, 'high_degree', high_degree)
+snafun::list_vertex_attributes(net)
+
+network::set.vertex.attribute(net, 'high_degree', high_degree)
+network::list.vertex.attributes(net)
+
+summary(network::get.vertex.attribute(net, 'high_degree'))
+```
+
+
+
+
+
+```{r}
+model <- ergm::ergm(
+  net ~ 
+    edges + nodefactor("high_degree") +
+    nodematch('hashtag_category') + 
+    nodeicov("follower_count") +
+    idegrange(from = 0, to = 2) +
+    idegrange(from = 3, to = 6) +
+    idegrange(from = 7, to = +Inf)
+    
+  , control = ergm::control.ergm(
+                     MCMC.samplesize = 100000,
+                     MCMC.burnin = 10000,
+                     MCMLE.maxit = 40,
+                     parallel = 10,
+                     parallel.type = "PSOCK")
+                   )
+  
+  
+summary(model)
+```
+```{r}
+ergm::mcmc.diagnostics(model)
+gof_results <- ergm::gof(model)
+plot(gof_results)
+
+```
+
+```{r}
+model <- ergm::ergm(
+  net ~ 
+    edges + nodefactor("high_degree") +
+    nodematch('hashtag_category') + 
+    nodeicov("follower_count") +
+    idegrange(from = 0, to = 2) +
+    idegrange(from = 3, to = 6) +
+    idegrange(from = 7, to = +Inf) +
+    mutual
+    
+  , control = ergm::control.ergm(
+                     MCMC.samplesize = 100000,
+                     MCMC.burnin = 10000,
+                     MCMLE.maxit = 40,
+                     parallel = 10,
+                     parallel.type = "PSOCK")
+                   )
+  
+  
+summary(model)
+```
+```{r}
+# ergm::mcmc.diagnostics(model)
+gof_results <- ergm::gof(model)
+plot(gof_results)
+```
+#Determine communities with walktrap algorithm
+```{r}
+graph <- snafun::to_igraph(net)
+walktrap <- snafun::extract_comm_walktrap(graph)
+
+plot(walktrap, graph, 
+     vertex.label = NA,
+     vertex.size = 5,         
+     edge.width = 1,         
+     edge.color = "grey",
+     edge.arrow.size = 0.2)
+```
+
+#Add communities as vertex attribute
+```{r}
+# Extract community membership from the walktrap result
+membership <- igraph::membership(walktrap)
+
+# Remove names from the community membership vector
+membership <- as.vector(membership)
+
+# Add the community membership as a vertex attribute to the network object
+network::set.vertex.attribute(net, "community", value = membership)
+
+# Check if the community attribute is added correctly
+print(network::get.vertex.attribute(net, "community"))
+```
+```{r}
+model2 <- ergm::ergm(
+  net ~ 
+    edges + nodefactor("high_degree") +
+    nodecov("community") +
+    nodematch('hashtag_category') + 
+    nodeicov("follower_count") +
+    idegrange(from = 0, to = 2) +
+    idegrange(from = 3, to = 6) +
+    idegrange(from = 7, to = +Inf) +
+    mutual
+    
+  , control = ergm::control.ergm(
+                     MCMC.samplesize = 100000,
+                     MCMC.burnin = 10000,
+                     MCMLE.maxit = 40,
+                     parallel = 10,
+                     parallel.type = "PSOCK")
+                   )
+  
+  
+summary(model2)
+```
+```{r}
+#ergm::mcmc.diagnostics(model2)
+gof_results <- ergm::gof(model2)
+plot(gof_results)
+```
+
